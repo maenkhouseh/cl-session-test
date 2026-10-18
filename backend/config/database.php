@@ -97,6 +97,8 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Event timestamps are timestamptz; pin the session to UTC so naive strings are never misread.
+            'timezone' => 'UTC',
         ],
 
         'sqlsrv' => [

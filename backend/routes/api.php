@@ -1,14 +1,19 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\ApiKeyController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BulkLinkController;
+use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\DomainController;
 use App\Http\Controllers\Api\V1\FolderController;
 use App\Http\Controllers\Api\V1\LinkController;
 use App\Http\Controllers\Api\V1\MemberController;
+use App\Http\Controllers\Api\V1\PublicDashboardController;
 use App\Http\Controllers\Api\V1\QrController;
+use App\Http\Controllers\Api\V1\SharedDashboardController;
 use App\Http\Controllers\Api\V1\TagController;
+use App\Http\Controllers\Api\V1\TrackController;
 use App\Http\Controllers\Api\V1\UtmTemplateController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +31,11 @@ Route::prefix('v1')->group(function () {
 
     // Public.
     Route::get('qr', [QrController::class, 'show'])->middleware('throttle:60,1');
+
+    Route::prefix('public/dashboards/{token}')->middleware('throttle:60,1')->group(function () {
+        Route::get('/', [PublicDashboardController::class, 'show']);
+        Route::get('analytics', [PublicDashboardController::class, 'analytics']);
+    });
 
     // Authenticated, workspace-agnostic.
     Route::middleware('auth:sanctum')->group(function () {
@@ -62,6 +72,19 @@ Route::prefix('v1')->group(function () {
         Route::get('links/{link}', [LinkController::class, 'show']);
         Route::patch('links/{link}', [LinkController::class, 'update']);
         Route::delete('links/{link}', [LinkController::class, 'destroy']);
+
+        Route::get('links/{link}/share', [SharedDashboardController::class, 'show']);
+        Route::put('links/{link}/share', [SharedDashboardController::class, 'store']);
+        Route::delete('links/{link}/share', [SharedDashboardController::class, 'destroy']);
+
+        // Conversions & analytics.
+        Route::post('track/lead', [TrackController::class, 'lead']);
+        Route::post('track/sale', [TrackController::class, 'sale']);
+        Route::get('analytics', [AnalyticsController::class, 'index']);
+        Route::get('analytics/export', [AnalyticsController::class, 'export']);
+        Route::get('events', [AnalyticsController::class, 'events']);
+        Route::get('customers', [CustomerController::class, 'index']);
+        Route::get('customers/{customer}', [CustomerController::class, 'show']);
 
         Route::apiResource('tags', TagController::class)->except('show');
         Route::apiResource('folders', FolderController::class)->except('show');

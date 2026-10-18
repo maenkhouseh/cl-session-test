@@ -13,7 +13,7 @@ class EnsureEventPartitions extends Command
 {
     public function handle(EventPartitions $partitions): int
     {
-        foreach (['click_events'] as $table) {
+        foreach (['click_events', 'lead_events', 'sale_events'] as $table) {
             $created = $partitions->ensure($table, (int) $this->option('ahead'));
             $this->info("{$table}: ".($created ? implode(', ', $created) : 'up to date'));
         }

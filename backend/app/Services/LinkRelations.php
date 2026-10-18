@@ -33,7 +33,7 @@ class LinkRelations
             })->get(['id', 'name']);
 
         $missingIds = array_diff($ids, $tags->pluck('id')->all());
-        $missingNames = array_diff($names, $tags->pluck('name')->map('strtolower')->all());
+        $missingNames = array_diff($names, $tags->pluck('name')->map(fn ($n) => strtolower($n))->all());
 
         if ($missingIds || $missingNames) {
             throw ApiException::unprocessable('Tag not found: '.implode(', ', [...$missingIds, ...$missingNames]).'.');
