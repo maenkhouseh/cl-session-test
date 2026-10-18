@@ -1,0 +1,3 @@
+# local Redis dumps
+dump.rdb
+*.rdb
