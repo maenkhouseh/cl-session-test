@@ -72,6 +72,17 @@ class AuthTest extends TestCase
             ->assertStatus(429)->assertJsonPath('error.code', 'rate_limit_exceeded');
     }
 
+    public function test_registration_is_rate_limited_per_ip(): void
+    {
+        foreach (range(1, 10) as $i) {
+            $this->spa()->postJson('/api/v1/auth/register', ['name' => 'U', 'email' => "u{$i}@example.com", 'password' => 'password123', 'password_confirmation' => 'password123'])->assertCreated();
+            $this->app['auth']->forgetGuards();
+        }
+
+        $this->spa()->postJson('/api/v1/auth/register', ['name' => 'U', 'email' => 'u11@example.com', 'password' => 'password123', 'password_confirmation' => 'password123'])
+            ->assertStatus(429)->assertJsonPath('error.code', 'rate_limit_exceeded');
+    }
+
     public function test_me_requires_authentication(): void
     {
         $this->getJson('/api/v1/auth/me')->assertUnauthorized()->assertJsonPath('error.code', 'unauthorized');

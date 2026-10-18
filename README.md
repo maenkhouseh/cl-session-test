@@ -7,7 +7,7 @@ real-time click/lead/sale analytics, conversion tracking, webhooks and a REST AP
 |---|---|
 | **Backend** | Laravel 13 · PHP 8.3 · PostgreSQL 16 · Redis 7 · Sanctum |
 | **Frontend** | Next.js 16 (App Router) · React 19 · Tailwind v4 · TanStack Query · Recharts |
-| **Tests** | 309 PHPUnit tests (Redis-cache + Postgres, no mocks of the data layer) · 26 Vitest unit tests · 8 Playwright end-to-end tests |
+| **Tests** | 310 PHPUnit tests (Redis-cache + Postgres, no mocks of the data layer) · 26 Vitest unit tests · 8 Playwright end-to-end tests |
 
 ## Documentation
 1. [`docs/01-ANALYSIS.md`](docs/01-ANALYSIS.md) — page-by-page and feature analysis of dub.co (what we studied and the scope we chose)
@@ -43,7 +43,7 @@ Short links are served by the backend on any domain pointed at it (`shortie.link
 
 ## Tests
 ```bash
-cd backend  && php artisan test                          # 309 tests
+cd backend  && php artisan test                          # 310 tests
 cd frontend && npm run typecheck && npm run lint && npm test && npm run build
 cd frontend && npm run e2e                               # needs both servers running (see playwright.config.ts)
 ```
@@ -57,4 +57,8 @@ docs/       analysis, plan, notes, operations
 
 ## Scope notes
 Built: everything above. Deliberately **not** built (documented in `docs/01-ANALYSIS.md`): the Partners/affiliate-payout product,
-SAML/SSO, Stripe billing (plans are set with `php artisan workspace:set-plan`), registered-domain purchase, Ask-AI, third-party integrations.
+SAML/SSO, Stripe billing (plans are set with `php artisan workspace:set-plan`), registered-domain purchase, Ask-AI, third-party integrations,
+OAuth/magic-link login, email verification and password reset (email + password sessions only), per-user folder permissions (folders have a workspace-wide access level),
+audit logs, and importers (Bitly/Short.io CSV).
+
+Tooling note: the original plan called for Pest and Larastan, but the build sandbox's egress proxy blocks GitHub package downloads, so the suite uses PHPUnit and Pint.

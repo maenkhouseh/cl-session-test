@@ -26,6 +26,7 @@ class AppServiceProvider extends ServiceProvider
             Route::bind($param, fn (string $value) => app(CurrentWorkspace::class)->workspace()->{$relation}()->whereKey($value)->firstOrFail());
         }
 
+        RateLimiter::for('register', fn (Request $request) => Limit::perMinute(10)->by($request->ip()));
         RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)->by(strtolower((string) $request->input('email')).'|'.$request->ip()));
 
         // Per-plan API quota, keyed by workspace (falls back to IP before a workspace is resolved).
