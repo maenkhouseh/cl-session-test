@@ -22,7 +22,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Workspace-scoped route binding: another tenant's id resolves to a 404, never to their data.
-        foreach (['link' => 'links', 'tag' => 'tags', 'folder' => 'folders', 'domain' => 'domains', 'template' => 'utmTemplates', 'customer' => 'customers'] as $param => $relation) {
+        foreach (['link' => 'links', 'tag' => 'tags', 'folder' => 'folders', 'domain' => 'domains', 'template' => 'utmTemplates', 'customer' => 'customers', 'webhook' => 'webhooks'] as $param => $relation) {
             Route::bind($param, fn (string $value) => app(CurrentWorkspace::class)->workspace()->{$relation}()->whereKey($value)->firstOrFail());
         }
 

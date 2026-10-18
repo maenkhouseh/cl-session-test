@@ -77,6 +77,11 @@ class Workspace extends Model
         return $this->hasMany(Customer::class);
     }
 
+    public function webhooks(): HasMany
+    {
+        return $this->hasMany(Webhook::class);
+    }
+
     public function roleFor(User $user): ?WorkspaceRole
     {
         $role = $this->users()->whereKey($user->getKey())->first()?->pivot->role;

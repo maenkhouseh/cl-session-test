@@ -3,12 +3,14 @@
 namespace App\Actions\Links;
 
 use App\Exceptions\ApiException;
+use App\Http\Resources\LinkResource;
 use App\Models\Link;
 use App\Services\DomainRegistry;
 use App\Services\KeyGenerator;
 use App\Services\LinkAttributes;
 use App\Services\LinkCache;
 use App\Services\LinkRelations;
+use App\Services\WebhookDispatcher;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -20,6 +22,7 @@ class UpdateLink
         private DomainRegistry $domains,
         private KeyGenerator $keys,
         private LinkCache $cache,
+        private WebhookDispatcher $webhooks,
     ) {}
 
     /** @param array<string, mixed> $input only the keys the caller wants to change */
@@ -57,8 +60,10 @@ class UpdateLink
         }
 
         $this->cache->forgetLink($link);
+        $link->load('tags');
+        $this->webhooks->dispatch($link->workspace_id, 'link.updated', fn () => (new LinkResource($link))->resolve());
 
-        return $link->load('tags');
+        return $link;
     }
 
     private function guardIdentityChange(Link $link, array $input): void

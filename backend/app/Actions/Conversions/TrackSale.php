@@ -8,11 +8,12 @@ use App\Models\Link;
 use App\Models\Workspace;
 use App\Services\ClickLookup;
 use App\Services\UsageMeter;
+use App\Services\WebhookDispatcher;
 use Illuminate\Support\Facades\DB;
 
 class TrackSale
 {
-    public function __construct(private ClickLookup $clicks, private UsageMeter $meter) {}
+    public function __construct(private ClickLookup $clicks, private UsageMeter $meter, private WebhookDispatcher $webhooks) {}
 
     /**
      * @param  array{customerExternalId: string, amount: int, currency?: string, eventName?: string, paymentProcessor?: string, invoiceId?: ?string, metadata?: ?array, timestamp?: ?string}  $in
@@ -29,7 +30,7 @@ class TrackSale
 
         $click = $this->clicks->find($workspace, $customer->click_id);
 
-        return DB::transaction(function () use ($workspace, $in, $customer, $click) {
+        $result = DB::transaction(function () use ($workspace, $in, $customer, $click) {
             $link = $workspace->links()->findOrFail($click->link_id);
 
             $fresh = ! isset($in['invoiceId']) || DB::table('event_dedupe')->insertOrIgnore([
@@ -60,5 +61,16 @@ class TrackSale
 
             return ['customer' => $customer, 'link' => $link, 'created' => $fresh];
         });
+
+        if ($result['created']) {
+            $this->webhooks->dispatch($workspace, 'sale.created', fn () => [
+                'eventName' => $in['eventName'] ?? 'Purchase',
+                'sale' => ['amount' => (int) $in['amount'], 'currency' => strtolower($in['currency'] ?? 'usd'), 'invoiceId' => $in['invoiceId'] ?? null, 'paymentProcessor' => $in['paymentProcessor'] ?? 'custom'],
+                'link' => ['id' => $result['link']->id, 'domain' => $result['link']->domain, 'key' => $result['link']->key, 'shortLink' => $result['link']->short_link, 'url' => $result['link']->url],
+                'customer' => ['id' => $customer->id, 'externalId' => $customer->external_id, 'name' => $customer->name, 'email' => $customer->email],
+            ]);
+        }
+
+        return $result;
     }
 }

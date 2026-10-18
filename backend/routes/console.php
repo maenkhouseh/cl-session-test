@@ -11,3 +11,4 @@ Artisan::command('inspire', function () {
 
 Schedule::job(new FlushClickBuffer)->everyTenSeconds()->withoutOverlapping();
 Schedule::command('events:partitions')->daily();
+Schedule::command('usage:reset')->hourly();

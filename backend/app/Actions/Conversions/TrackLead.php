@@ -7,11 +7,12 @@ use App\Models\Link;
 use App\Models\Workspace;
 use App\Services\ClickLookup;
 use App\Services\UsageMeter;
+use App\Services\WebhookDispatcher;
 use Illuminate\Support\Facades\DB;
 
 class TrackLead
 {
-    public function __construct(private ClickLookup $clicks, private UsageMeter $meter) {}
+    public function __construct(private ClickLookup $clicks, private UsageMeter $meter, private WebhookDispatcher $webhooks) {}
 
     /**
      * @param  array{clickId: string, eventName: string, customerExternalId: string, customerName?: ?string, customerEmail?: ?string, customerAvatar?: ?string, metadata?: ?array, timestamp?: ?string}  $in
@@ -22,7 +23,7 @@ class TrackLead
         $click = $this->clicks->find($workspace, $in['clickId']);
         $dedupe = "lead:{$in['customerExternalId']}:{$in['eventName']}";
 
-        return DB::transaction(function () use ($workspace, $in, $click, $dedupe) {
+        $result = DB::transaction(function () use ($workspace, $in, $click, $dedupe) {
             $customer = $this->upsertCustomer($workspace, $in, $click);
             $link = $workspace->links()->findOrFail($click->link_id);
 
@@ -46,6 +47,17 @@ class TrackLead
 
             return ['customer' => $customer, 'link' => $link, 'clickId' => $click->click_id, 'created' => $fresh];
         });
+
+        if ($result['created']) {
+            $this->webhooks->dispatch($workspace, 'lead.created', fn () => [
+                'eventName' => $in['eventName'],
+                'click' => ['id' => $result['clickId']],
+                'link' => ['id' => $result['link']->id, 'domain' => $result['link']->domain, 'key' => $result['link']->key, 'shortLink' => $result['link']->short_link, 'url' => $result['link']->url],
+                'customer' => ['id' => $result['customer']->id, 'externalId' => $result['customer']->external_id, 'name' => $result['customer']->name, 'email' => $result['customer']->email],
+            ]);
+        }
+
+        return $result;
     }
 
     private function upsertCustomer(Workspace $workspace, array $in, object $click): Customer

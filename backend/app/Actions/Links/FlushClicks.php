@@ -4,6 +4,7 @@ namespace App\Actions\Links;
 
 use App\Models\Workspace;
 use App\Services\ClickBuffer;
+use App\Services\WebhookDispatcher;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -15,7 +16,7 @@ class FlushClicks
         'device', 'browser', 'os', 'referer', 'referer_url', 'qr', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
     ];
 
-    public function __construct(private ClickBuffer $buffer) {}
+    public function __construct(private ClickBuffer $buffer, private WebhookDispatcher $webhooks) {}
 
     /** @return int number of events persisted */
     public function __invoke(int $batch = 1000): int
@@ -41,7 +42,26 @@ class FlushClicks
             $this->bumpWorkspaceUsage($admitted);
         });
 
+        $this->notifyClickSubscribers($admitted);
+
         return $admitted->count();
+    }
+
+    /** `link.clicked` webhooks — only workspaces that actually subscribe pay for the fan-out. */
+    private function notifyClickSubscribers(Collection $events): void
+    {
+        foreach ($events->groupBy('workspace_id') as $workspaceId => $group) {
+            if (! $this->webhooks->hasSubscribers($workspaceId, 'link.clicked')) {
+                continue;
+            }
+
+            foreach ($group as $event) {
+                $this->webhooks->dispatch($workspaceId, 'link.clicked', fn () => [
+                    'click' => ['id' => $event['click_id'], 'timestamp' => $event['occurred_at'], 'url' => $event['url'], 'country' => $event['country'] ?? null, 'city' => $event['city'] ?? null, 'device' => $event['device'] ?? null, 'browser' => $event['browser'] ?? null, 'os' => $event['os'] ?? null, 'referer' => $event['referer'] ?? null, 'qr' => (bool) ($event['qr'] ?? false)],
+                    'link' => ['id' => $event['link_id']],
+                ]);
+            }
+        }
     }
 
     /**

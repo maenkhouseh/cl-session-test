@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\SharedDashboardController;
 use App\Http\Controllers\Api\V1\TagController;
 use App\Http\Controllers\Api\V1\TrackController;
 use App\Http\Controllers\Api\V1\UtmTemplateController;
+use App\Http\Controllers\Api\V1\WebhookController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -89,6 +90,10 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('tags', TagController::class)->except('show');
         Route::apiResource('folders', FolderController::class)->except('show');
         Route::apiResource('utm-templates', UtmTemplateController::class)->except('show')->parameters(['utm-templates' => 'template']);
+
+        Route::apiResource('webhooks', WebhookController::class)->except('show');
+        Route::get('webhooks/{webhook}/deliveries', [WebhookController::class, 'deliveries']);
+        Route::post('webhooks/{webhook}/test', [WebhookController::class, 'test']);
 
         Route::get('domains', [DomainController::class, 'index']);
         Route::post('domains', [DomainController::class, 'store']);

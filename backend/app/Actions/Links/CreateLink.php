@@ -3,6 +3,7 @@
 namespace App\Actions\Links;
 
 use App\Exceptions\ApiException;
+use App\Http\Resources\LinkResource;
 use App\Models\Link;
 use App\Models\User;
 use App\Models\Workspace;
@@ -12,6 +13,7 @@ use App\Services\LinkAttributes;
 use App\Services\LinkCache;
 use App\Services\LinkRelations;
 use App\Services\UsageMeter;
+use App\Services\WebhookDispatcher;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -24,6 +26,7 @@ class CreateLink
         private KeyGenerator $keys,
         private UsageMeter $meter,
         private LinkCache $cache,
+        private WebhookDispatcher $webhooks,
     ) {}
 
     /** @param array<string, mixed> $input camelCase API input */
@@ -58,8 +61,10 @@ class CreateLink
         }
 
         $this->cache->forget($domain, $key);
+        $link->load('tags');
+        $this->webhooks->dispatch($workspace, 'link.created', fn () => (new LinkResource($link))->resolve());
 
-        return $link->load('tags');
+        return $link;
     }
 
     private function resolveKey(string $domain, array $input): string
