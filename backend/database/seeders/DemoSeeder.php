@@ -120,6 +120,7 @@ class DemoSeeder extends Seeder
         DB::statement('UPDATE links l SET leads = c.n FROM (SELECT link_id, count(*) n FROM lead_events WHERE workspace_id = ? GROUP BY link_id) c WHERE l.id = c.link_id', [$workspace->id]);
         DB::statement('UPDATE links l SET sales = c.n, sale_amount = c.amt FROM (SELECT link_id, count(*) n, sum(amount) amt FROM sale_events WHERE workspace_id = ? GROUP BY link_id) c WHERE l.id = c.link_id', [$workspace->id]);
         $workspace->update(['events_usage' => count($clicks) + count($leads) + count($sales)]);
+        app(\App\Services\Analytics\DailyRollup::class)->rebuild();
     }
 
     /** @param array<string|int, int> $weights */

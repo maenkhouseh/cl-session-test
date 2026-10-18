@@ -43,4 +43,7 @@ return [
     'api_key_prefix' => 'shrt_',
     'invite_ttl_days' => 14,
     'redirect_cache_ttl' => 3600,
+
+    // Serve long-range totals/timeseries from the daily roll-up (identical results; see AnalyticsRollupTest).
+    'analytics_rollup' => env('SHORTIE_ANALYTICS_ROLLUP', true),
 ];

@@ -3,7 +3,7 @@
 ## 1. Stack
 | Layer | Choice | Why |
 |---|---|---|
-| Backend | **Laravel 13** (PHP 8.3), Sanctum, Pest, Pint, Larastan | Latest LTS-line framework; first-party auth/queue/cache |
+| Backend | **Laravel 13** (PHP 8.3), Sanctum, PHPUnit, Pint | Latest LTS-line framework; first-party auth/queue/cache |
 | Frontend | **Next.js 16** (App Router, React 19, TS strict), Tailwind v4, TanStack Query, Zod, Recharts | Server components for marketing, client islands for dashboard |
 | Database | **PostgreSQL 16** (tests run on Postgres too — analytics SQL is dialect-specific) | `date_trunc`, partial/BRIN indexes, `jsonb`, partitioning |
 | Cache/queue/session | **Redis 7** | Redirect cache, click buffer, rate limits, queues |
@@ -28,12 +28,12 @@ Rules: controllers ≤ 15 lines/method; no query logic in controllers (Eloquent 
 Actions are the only place that mutates state; every Action has a feature test; every service a unit test.
 
 ## 3. Data model & DB optimisation (filtering + analytics first)
-- IDs: **ULID** public ids (`link_01H…`) + bigint PK internally for index compactness.
+- IDs: **ULID** primary keys for core entities (sortable, safe to expose); `bigint` identity for append-only event rows.
 - `links`: unique `(domain_id, key)` (case-insensitive via `citext`/lower index), indexes `(workspace_id, created_at desc)`,
   `(workspace_id, folder_id, created_at)`, partial `(workspace_id) where archived = false`, `(external_id, workspace_id)` unique-where-not-null.
   Counters (`clicks, leads, sales, sale_amount, last_clicked_at`) denormalised on the row — list sorting by clicks is an index scan, not an aggregate.
 - Tags via pivot `link_tag(link_id, tag_id)` with covering index `(tag_id, link_id)`; list filtering uses `EXISTS`, and tag/folder/domain list pages eager-load in 3 queries total (no N+1; enforced by a test using `DB::listen` query-count assertions).
-- Pagination: **keyset (cursor)** for events and large lists; offset only for ≤10k-row link tables with count cached.
+- Pagination: **keyset (cursor)** for events; link/customer lists use `limit+1` offset paging (no COUNT).
 - Events — three append-only tables (`click_events`, `lead_events`, `sale_events`), each denormalising
   `workspace_id, link_id, occurred_at, country, city, region, continent, device, browser, os, referer, referer_url, utm_*, qr(trigger)`:
   - Composite indexes `(workspace_id, occurred_at desc)`, `(link_id, occurred_at desc)`; **BRIN** on `occurred_at`.
@@ -61,11 +61,11 @@ Rules: server components by default; `"use client"` only at interactive leaves; 
 `/api/v1`, JSON, ULIDs, ISO-8601 UTC, Dub-compatible error envelope, `Idempotency-Key` on POST create, rate limit per plan via named limiter, `Link`/`Tag`/`Folder`/`Domain` resources match Dub field names so Dub SDK-style clients feel familiar.
 
 ## 6. Testing strategy (backend)
-- **Pest** feature tests for every endpoint: happy path, validation matrix, authz (cross-workspace isolation), plan limits, error envelope.
+- **PHPUnit** feature tests for every endpoint: happy path, validation matrix, authz (cross-workspace isolation), plan limits, error envelope.
 - Unit tests for services/helpers (KeyGenerator collisions, UrlNormalizer, UA parser, DateRange, AnalyticsQuery SQL against seeded events, PlanLimiter).
 - Redirect matrix tests (expired, password, geo, device, ios/android, A/B distribution, bots, archived).
 - Query-count assertions on list and analytics endpoints.
-- CI: Pint, Larastan (level 6), Pest with coverage floor, `next build`, `tsc --noEmit`, ESLint.
+- CI: Pint, PHPUnit, `next build`, `tsc --noEmit`, ESLint.
 
 ## 7. Delivery phases (each ends with green tests + commit on `main`)
 1. **Foundation** — Laravel 13 + Postgres + Pest; auth; workspaces/members; error envelope; API key auth.

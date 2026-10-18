@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Customer;
 use App\Models\Link;
 use App\Models\Workspace;
+use App\Services\Analytics\DailyRollup;
 use App\Services\ClickLookup;
 use App\Services\UsageMeter;
 use App\Services\WebhookDispatcher;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 
 class TrackSale
 {
-    public function __construct(private ClickLookup $clicks, private UsageMeter $meter, private WebhookDispatcher $webhooks) {}
+    public function __construct(private ClickLookup $clicks, private UsageMeter $meter, private WebhookDispatcher $webhooks, private DailyRollup $rollup) {}
 
     /**
      * @param  array{customerExternalId: string, amount: int, currency?: string, eventName?: string, paymentProcessor?: string, invoiceId?: ?string, metadata?: ?array, timestamp?: ?string}  $in
@@ -57,6 +58,7 @@ class TrackSale
                     'sales' => DB::raw('sales + 1'),
                     'sale_amount' => DB::raw('sale_amount + '.(int) $in['amount']),
                 ]);
+                $this->rollup->recordEvent($workspace->id, $link->id, $in['timestamp'] ?? now(), ['sales' => 1, 'sale_amount' => (int) $in['amount']]);
             }
 
             return ['customer' => $customer, 'link' => $link, 'created' => $fresh];

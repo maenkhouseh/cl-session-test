@@ -73,6 +73,19 @@ final readonly class AnalyticsFilters
         );
     }
 
+    /** Same scope over a different time window (used to split a range into roll-up + raw segments). */
+    public function withWindow(CarbonImmutable $start, CarbonImmutable $end): self
+    {
+        return new self($this->event, $start, $end, $this->timezone, $this->linkId, $this->domain, $this->key, $this->tagIds,
+            $this->folderId, $this->dimensions, $this->trigger, $this->uniqueOnly);
+    }
+
+    /** True when only link-level scoping applies, i.e. the pre-aggregated daily table can answer the query. */
+    public function isLinkLevelOnly(): bool
+    {
+        return $this->dimensions === [] && $this->trigger === null && ! $this->uniqueOnly;
+    }
+
     /** `US,CA` → in-list; `-US,-CA` → not-in-list. */
     private static function parseValues(string $raw): array
     {

@@ -5,6 +5,7 @@ namespace App\Services\Analytics;
 use App\Data\AnalyticsFilters;
 use App\Models\Link;
 use App\Models\Workspace;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -41,24 +42,8 @@ class AnalyticsQuery
         $q = DB::table($table)->where("{$table}.workspace_id", $workspace->id)
             ->where("{$table}.occurred_at", '>=', $f->start->format(self::TS))->where("{$table}.occurred_at", '<=', $f->end->format(self::TS));
 
-        if ($f->domain && $f->key && ! $f->linkId) {
-            $linkId = Link::query()->where('workspace_id', $workspace->id)->forDomainKey($f->domain, $f->key)->value('id');
-            if (! $linkId) {
-                return null;
-            }
-            $q->where("{$table}.link_id", $linkId);
-        } elseif ($f->linkId) {
-            $q->where("{$table}.link_id", $f->linkId);
-        }
-
-        if ($f->tagIds) {
-            $q->whereExists(fn ($s) => $s->select(DB::raw(1))->from('link_tag')
-                ->whereColumn('link_tag.link_id', "{$table}.link_id")->whereIn('link_tag.tag_id', $f->tagIds));
-        }
-
-        if ($f->folderId) {
-            $q->whereIn("{$table}.link_id", fn ($s) => $s->select('id')->from('links')
-                ->where('workspace_id', $workspace->id)->where('folder_id', $f->folderId));
+        if (! $this->scopeToLinks($q, $table, $workspace, $f)) {
+            return null;
         }
 
         foreach ($f->dimensions as $column => $filter) {
@@ -78,8 +63,85 @@ class AnalyticsQuery
         return $q;
     }
 
+    /** Roll-up rows for whole UTC days in [$from, $to). Only valid for link-level filters. */
+    private function rollupScoped(Workspace $workspace, AnalyticsFilters $f, CarbonImmutable $from, CarbonImmutable $to): ?Builder
+    {
+        $q = DB::table('analytics_daily')->where('analytics_daily.workspace_id', $workspace->id)
+            ->where('analytics_daily.day', '>=', $from->toDateString())->where('analytics_daily.day', '<', $to->toDateString());
+
+        return $this->scopeToLinks($q, 'analytics_daily', $workspace, $f) ? $q : null;
+    }
+
+    /** Link / tag / folder predicates shared by events and the roll-up. False = nothing can match. */
+    private function scopeToLinks(Builder $q, string $table, Workspace $workspace, AnalyticsFilters $f): bool
+    {
+        if ($f->domain && $f->key && ! $f->linkId) {
+            $linkId = Link::query()->where('workspace_id', $workspace->id)->forDomainKey($f->domain, $f->key)->value('id');
+            if (! $linkId) {
+                return false;
+            }
+            $q->where("{$table}.link_id", $linkId);
+        } elseif ($f->linkId) {
+            $q->where("{$table}.link_id", $f->linkId);
+        }
+
+        if ($f->tagIds) {
+            $q->whereExists(fn ($s) => $s->select(DB::raw(1))->from('link_tag')
+                ->whereColumn('link_tag.link_id', "{$table}.link_id")->whereIn('link_tag.tag_id', $f->tagIds));
+        }
+
+        if ($f->folderId) {
+            $q->whereIn("{$table}.link_id", fn ($s) => $s->select('id')->from('links')
+                ->where('workspace_id', $workspace->id)->where('folder_id', $f->folderId));
+        }
+
+        return true;
+    }
+
+    /**
+     * Splits a range into [roll-up for whole UTC days] + [raw events for the partial edge days].
+     * Falls back to a single raw segment whenever the roll-up cannot answer exactly.
+     *
+     * @return array<int, array{0: 'raw', 1: AnalyticsFilters}|array{0: 'rollup', 1: CarbonImmutable, 2: CarbonImmutable}>
+     */
+    private function segments(AnalyticsFilters $f, bool $needsUtcBuckets): array
+    {
+        if (! config('shortie.analytics_rollup', true) || ! $f->isLinkLevelOnly() || ($needsUtcBuckets && $f->timezone !== 'UTC')) {
+            return [['raw', $f]];
+        }
+
+        $fullStart = $f->start->equalTo($f->start->startOfDay()) ? $f->start : $f->start->startOfDay()->addDay();
+        $fullEnd = $f->end->startOfDay(); // exclusive: the (partial) day containing "now" always comes from raw events
+
+        if ($fullStart >= $fullEnd) {
+            return [['raw', $f]];
+        }
+
+        $segments = [['rollup', $fullStart, $fullEnd]];
+        if ($f->start < $fullStart) {
+            $segments[] = ['raw', $f->withWindow($f->start, $fullStart->subMicroseconds(1))];
+        }
+        $segments[] = ['raw', $f->withWindow($fullEnd, $f->end)];
+
+        return $segments;
+    }
+
     /** @return array{clicks: int, uniqueClicks: int, leads: int, sales: int, saleAmount: int} */
     public function totals(Workspace $workspace, AnalyticsFilters $f): array
+    {
+        $total = ['clicks' => 0, 'uniqueClicks' => 0, 'leads' => 0, 'sales' => 0, 'saleAmount' => 0];
+
+        foreach ($this->segments($f, needsUtcBuckets: false) as $segment) {
+            $part = $segment[0] === 'raw' ? $this->rawTotals($workspace, $segment[1]) : $this->rollupTotals($workspace, $f, $segment[1], $segment[2]);
+            foreach ($total as $metric => $value) {
+                $total[$metric] = $value + $part[$metric];
+            }
+        }
+
+        return $total;
+    }
+
+    private function rawTotals(Workspace $workspace, AnalyticsFilters $f): array
     {
         $empty = ['clicks' => 0, 'uniqueClicks' => 0, 'leads' => 0, 'sales' => 0, 'saleAmount' => 0];
         $parts = [];
@@ -113,27 +175,85 @@ class AnalyticsQuery
         return $empty;
     }
 
+    private function rollupTotals(Workspace $workspace, AnalyticsFilters $f, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $q = $this->rollupScoped($workspace, $f, $from, $to);
+        $row = $q?->selectRaw('coalesce(sum(clicks), 0) as c, coalesce(sum(unique_clicks), 0) as u, coalesce(sum(leads), 0) as l, coalesce(sum(sales), 0) as s, coalesce(sum(sale_amount), 0) as a')->first();
+
+        return $row
+            ? ['clicks' => (int) $row->c, 'uniqueClicks' => (int) $row->u, 'leads' => (int) $row->l, 'sales' => (int) $row->s, 'saleAmount' => (int) $row->a]
+            : ['clicks' => 0, 'uniqueClicks' => 0, 'leads' => 0, 'sales' => 0, 'saleAmount' => 0];
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function timeseries(Workspace $workspace, AnalyticsFilters $f): array
     {
         $unit = $f->granularity();
         $buckets = $this->emptyBuckets($f, $unit);
 
-        if ($q = $this->scoped($workspace, $f, $f->event)) {
-            $table = self::TABLES[$f->event];
-            $rows = $q->selectRaw(
-                "to_char(date_trunc('{$unit}', {$table}.occurred_at AT TIME ZONE ?), 'YYYY-MM-DD\"T\"HH24:MI:SS') as bucket, ".$this->metrics($f->event),
-                [$f->timezone],
-            )->groupBy('bucket')->get();
+        // Hourly charts cover ≤ 48h, which is cheap to read raw; day/month buckets use the roll-up.
+        $segments = $unit === 'hour' ? [['raw', $f]] : $this->segments($f, needsUtcBuckets: true);
 
-            foreach ($rows as $row) {
-                if (isset($buckets[$row->bucket])) {
-                    $buckets[$row->bucket] = [...$buckets[$row->bucket], ...$this->metricValues($f->event, $row)];
+        foreach ($segments as $segment) {
+            $rows = $segment[0] === 'rollup'
+                ? $this->rollupSeries($workspace, $f, $unit, $segment[1], $segment[2])
+                : $this->rawSeries($workspace, $segment[1], $unit);
+
+            foreach ($rows as $key => $values) {
+                if (! isset($buckets[$key])) {
+                    continue;
+                }
+                foreach ($values as $metric => $value) {
+                    $buckets[$key][$metric] += $value;
                 }
             }
         }
 
         return array_values($buckets);
+    }
+
+    /** @return array<string, array<string, int>> bucket key => metrics */
+    private function rawSeries(Workspace $workspace, AnalyticsFilters $f, string $unit): array
+    {
+        $q = $this->scoped($workspace, $f, $f->event);
+        if (! $q) {
+            return [];
+        }
+
+        $table = self::TABLES[$f->event];
+        // Format AFTER grouping: to_char on ~100 buckets instead of on every event row.
+        $inner = $q->selectRaw("date_trunc('{$unit}', {$table}.occurred_at AT TIME ZONE ?) as bucket, ".$this->metrics($f->event), [$f->timezone])->groupBy('bucket');
+        $rows = DB::query()->fromSub($inner, 't')->selectRaw("to_char(t.bucket, 'YYYY-MM-DD\"T\"HH24:MI:SS') as label, ".$this->outerColumns($f->event))->get();
+
+        return $rows->mapWithKeys(fn ($r) => [$r->label => $this->metricValues($f->event, $r)])->all();
+    }
+
+    private function outerColumns(string $event): string
+    {
+        return match ($event) {
+            'clicks' => 't.n, t.u',
+            'leads' => 't.n',
+            'sales' => 't.n, t.amount',
+        };
+    }
+
+    /** @return array<string, array<string, int>> */
+    private function rollupSeries(Workspace $workspace, AnalyticsFilters $f, string $unit, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $q = $this->rollupScoped($workspace, $f, $from, $to);
+        if (! $q) {
+            return [];
+        }
+
+        $select = match ($f->event) {
+            'clicks' => 'coalesce(sum(clicks), 0) as n, coalesce(sum(unique_clicks), 0) as u',
+            'leads' => 'coalesce(sum(leads), 0) as n',
+            'sales' => 'coalesce(sum(sales), 0) as n, coalesce(sum(sale_amount), 0)::bigint as amount',
+        };
+
+        $rows = $q->selectRaw("to_char(date_trunc('{$unit}', analytics_daily.day::timestamp), 'YYYY-MM-DD\"T\"HH24:MI:SS') as bucket, {$select}")->groupBy('bucket')->get();
+
+        return $rows->mapWithKeys(fn ($r) => [$r->bucket => $this->metricValues($f->event, $r)])->all();
     }
 
     /** @return array<int, array<string, mixed>> */

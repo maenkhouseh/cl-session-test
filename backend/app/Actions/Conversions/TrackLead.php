@@ -5,6 +5,7 @@ namespace App\Actions\Conversions;
 use App\Models\Customer;
 use App\Models\Link;
 use App\Models\Workspace;
+use App\Services\Analytics\DailyRollup;
 use App\Services\ClickLookup;
 use App\Services\UsageMeter;
 use App\Services\WebhookDispatcher;
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class TrackLead
 {
-    public function __construct(private ClickLookup $clicks, private UsageMeter $meter, private WebhookDispatcher $webhooks) {}
+    public function __construct(private ClickLookup $clicks, private UsageMeter $meter, private WebhookDispatcher $webhooks, private DailyRollup $rollup) {}
 
     /**
      * @param  array{clickId: string, eventName: string, customerExternalId: string, customerName?: ?string, customerEmail?: ?string, customerAvatar?: ?string, metadata?: ?array, timestamp?: ?string}  $in
@@ -43,6 +44,7 @@ class TrackLead
                     ...$this->clicks->dimensions($click),
                 ]);
                 Link::query()->whereKey($link->id)->update(['leads' => DB::raw('leads + 1')]);
+                $this->rollup->recordEvent($workspace->id, $link->id, $in['timestamp'] ?? now(), ['leads' => 1]);
             }
 
             return ['customer' => $customer, 'link' => $link, 'clickId' => $click->click_id, 'created' => $fresh];

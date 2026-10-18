@@ -3,6 +3,7 @@
 namespace App\Actions\Links;
 
 use App\Models\Workspace;
+use App\Services\Analytics\DailyRollup;
 use App\Services\ClickBuffer;
 use App\Services\WebhookDispatcher;
 use Illuminate\Support\Collection;
@@ -16,7 +17,7 @@ class FlushClicks
         'device', 'browser', 'os', 'referer', 'referer_url', 'qr', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
     ];
 
-    public function __construct(private ClickBuffer $buffer, private WebhookDispatcher $webhooks) {}
+    public function __construct(private ClickBuffer $buffer, private WebhookDispatcher $webhooks, private DailyRollup $rollup) {}
 
     /** @return int number of events persisted */
     public function __invoke(int $batch = 1000): int
@@ -39,6 +40,7 @@ class FlushClicks
             }
 
             $this->bumpLinkCounters($admitted);
+            $this->rollup->increment($this->dailyDeltas($admitted));
             $this->bumpWorkspaceUsage($admitted);
         });
 
@@ -98,6 +100,18 @@ class FlushClicks
         $row['occurred_at'] .= '+00';
 
         return $row;
+    }
+
+    /** One delta row per (link, UTC day) for the roll-up. */
+    private function dailyDeltas(Collection $events): array
+    {
+        return $events->groupBy(fn ($e) => $e['link_id'].'|'.substr($e['occurred_at'], 0, 10))->map(fn ($group) => [
+            'workspace_id' => $group[0]['workspace_id'],
+            'link_id' => $group[0]['link_id'],
+            'day' => substr($group[0]['occurred_at'], 0, 10),
+            'clicks' => $group->count(),
+            'unique_clicks' => $group->where('is_unique', true)->count(),
+        ])->values()->all();
     }
 
     private function bumpLinkCounters(Collection $events): void
