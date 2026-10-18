@@ -47,6 +47,31 @@ class Workspace extends Model
         return $this->hasMany(ApiKey::class);
     }
 
+    public function domains(): HasMany
+    {
+        return $this->hasMany(Domain::class);
+    }
+
+    public function links(): HasMany
+    {
+        return $this->hasMany(Link::class);
+    }
+
+    public function tags(): HasMany
+    {
+        return $this->hasMany(Tag::class);
+    }
+
+    public function folders(): HasMany
+    {
+        return $this->hasMany(Folder::class);
+    }
+
+    public function utmTemplates(): HasMany
+    {
+        return $this->hasMany(UtmTemplate::class);
+    }
+
     public function roleFor(User $user): ?WorkspaceRole
     {
         $role = $this->users()->whereKey($user->getKey())->first()?->pivot->role;

@@ -33,6 +33,13 @@ return [
         ],
     ],
 
+    // Short domains every workspace can use without verification.
+    'system_domains' => ['shortie.link'],
+    'default_domain' => 'shortie.link',
+    // Records customers point their domains at (shown in the dashboard's DNS instructions).
+    'dns_target' => env('SHORTIE_DNS_TARGET', 'cname.shortie.link'),
+    'reserved_keys' => ['api', 'app', 'admin', 'login', 'register', 'logout', 'stats', 'share', 'qr', 'static', 'assets', 'favicon.ico', 'robots.txt', 'sitemap.xml', '_next', 'up'],
+
     'api_key_prefix' => 'shrt_',
     'invite_ttl_days' => 14,
     'redirect_cache_ttl' => 3600,

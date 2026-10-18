@@ -2,7 +2,14 @@
 
 use App\Http\Controllers\Api\V1\ApiKeyController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BulkLinkController;
+use App\Http\Controllers\Api\V1\DomainController;
+use App\Http\Controllers\Api\V1\FolderController;
+use App\Http\Controllers\Api\V1\LinkController;
 use App\Http\Controllers\Api\V1\MemberController;
+use App\Http\Controllers\Api\V1\QrController;
+use App\Http\Controllers\Api\V1\TagController;
+use App\Http\Controllers\Api\V1\UtmTemplateController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -16,6 +23,9 @@ Route::prefix('v1')->group(function () {
             Route::get('me', [AuthController::class, 'me']);
         });
     });
+
+    // Public.
+    Route::get('qr', [QrController::class, 'show'])->middleware('throttle:60,1');
 
     // Authenticated, workspace-agnostic.
     Route::middleware('auth:sanctum')->group(function () {
@@ -39,5 +49,28 @@ Route::prefix('v1')->group(function () {
         Route::get('api-keys', [ApiKeyController::class, 'index']);
         Route::post('api-keys', [ApiKeyController::class, 'store']);
         Route::delete('api-keys/{id}', [ApiKeyController::class, 'destroy']);
+
+        // Links. Static segments are declared before `{link}` so they are never captured as an id.
+        Route::get('links', [LinkController::class, 'index']);
+        Route::post('links', [LinkController::class, 'store']);
+        Route::get('links/count', [LinkController::class, 'count']);
+        Route::get('links/info', [LinkController::class, 'info']);
+        Route::put('links/upsert', [LinkController::class, 'upsert']);
+        Route::post('links/bulk', [BulkLinkController::class, 'store']);
+        Route::patch('links/bulk', [BulkLinkController::class, 'update']);
+        Route::delete('links/bulk', [BulkLinkController::class, 'destroy']);
+        Route::get('links/{link}', [LinkController::class, 'show']);
+        Route::patch('links/{link}', [LinkController::class, 'update']);
+        Route::delete('links/{link}', [LinkController::class, 'destroy']);
+
+        Route::apiResource('tags', TagController::class)->except('show');
+        Route::apiResource('folders', FolderController::class)->except('show');
+        Route::apiResource('utm-templates', UtmTemplateController::class)->except('show')->parameters(['utm-templates' => 'template']);
+
+        Route::get('domains', [DomainController::class, 'index']);
+        Route::post('domains', [DomainController::class, 'store']);
+        Route::patch('domains/{domain}', [DomainController::class, 'update']);
+        Route::post('domains/{domain}/verify', [DomainController::class, 'verify']);
+        Route::delete('domains/{domain}', [DomainController::class, 'destroy']);
     });
 });
