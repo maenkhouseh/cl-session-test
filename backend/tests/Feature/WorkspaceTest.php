@@ -64,7 +64,8 @@ class WorkspaceTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.plan', 'business')
             ->assertJsonPath('data.limits.links_per_month', 10000)
-            ->assertJsonPath('data.usage.links', 0);
+            ->assertJsonPath('data.usage.links', 0)
+            ->assertJsonPath('data.systemDomains', ['shortie.link']);
     }
 
     public function test_workspace_can_be_addressed_by_id(): void

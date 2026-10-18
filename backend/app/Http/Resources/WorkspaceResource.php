@@ -20,6 +20,8 @@ class WorkspaceResource extends JsonResource
             'limits' => $this->plan->limits(),
             'usage' => ['links' => $this->links_usage, 'events' => $this->events_usage],
             'usageResetAt' => $this->usage_reset_at,
+            // Short domains every workspace can use without verification.
+            'systemDomains' => config('shortie.system_domains'),
             'role' => $this->whenPivotLoaded('workspace_user', fn () => $this->pivot->role),
             'createdAt' => $this->created_at,
         ];

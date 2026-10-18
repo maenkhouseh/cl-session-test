@@ -6,6 +6,7 @@ use App\Jobs\DeliverWebhook;
 use App\Models\Webhook;
 use App\Models\Workspace;
 use Closure;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -26,7 +27,7 @@ class WebhookDispatcher
         $payload = ['id' => 'evt_'.Str::lower((string) Str::ulid()), 'event' => $event, 'createdAt' => now()->toIso8601String(), 'data' => $data()];
 
         foreach ($webhooks as $webhook) {
-            DeliverWebhook::dispatch($webhook->id, $event, $payload);
+            DeliverWebhook::dispatch($webhook['id'], $event, $payload);
         }
     }
 
@@ -40,12 +41,19 @@ class WebhookDispatcher
         Cache::forget($this->cacheKey($workspaceId));
     }
 
-    /** One cached query per workspace per minute — the hot paths must not pay for webhooks they don't use. */
-    private function subscribed(string $workspaceId, string $event)
+    /**
+     * One cached query per workspace per minute — the hot paths must not pay for webhooks they don't use.
+     * Cached as plain arrays (the cache will not unserialize Eloquent classes).
+     *
+     * @return Collection<int, array{id: string, triggers: array<int, string>}>
+     */
+    private function subscribed(string $workspaceId, string $event): Collection
     {
-        return Cache::remember($this->cacheKey($workspaceId), 60, fn () => Webhook::query()
-            ->where('workspace_id', $workspaceId)->whereNull('disabled_at')->get(['id', 'triggers']))
-            ->filter(fn ($w) => in_array($event, $w->triggers, true));
+        $all = Cache::remember($this->cacheKey($workspaceId), 60, fn () => Webhook::query()
+            ->where('workspace_id', $workspaceId)->whereNull('disabled_at')->get(['id', 'triggers'])
+            ->map(fn (Webhook $w) => ['id' => $w->id, 'triggers' => $w->triggers])->all());
+
+        return collect($all)->filter(fn (array $w) => in_array($event, $w['triggers'], true));
     }
 
     private function cacheKey(string $workspaceId): string
